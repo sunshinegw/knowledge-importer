@@ -1,0 +1,22 @@
+# -*- coding: utf-8 -*-
+"""
+配置文件 - 请复制此文件为 config.py 并填入实际值
+"""
+import os
+
+# 图床配置
+DUFS_CONFIG = {
+    "server_url": os.getenv("DUFS_SERVER_URL", "http://localhost:5000"),
+    "timeout": 30,
+    "retry_times": 3,
+    "retry_delay": 2,
+}
+
+# 知识库路径
+DEFAULT_KNOWLEDGE_BASE = os.getenv(
+    "KNOWLEDGE_BASE_PATH",
+    os.path.expanduser("~/Obsidian/Obsidian")
+)
+
+# 图片上传目录（在图床服务器上）
+UPLOAD_PATH = "/Picture"
