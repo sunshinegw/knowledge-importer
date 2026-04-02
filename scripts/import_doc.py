@@ -338,14 +338,54 @@ def extract_text_from_xlsx(file_path: str) -> str:
 
 
 def extract_images_from_pdf(file_path: str, output_dir: str) -> list:
-    """从 PDF 提取图片（基础实现）"""
-    # PDF 图片提取较复杂，这里返回空列表
-    # 如需完整 PDF 解析，建议使用 pdf2image + Pillow
-    return []
+    """从 PDF 提取嵌入的图片（使用 PyMuPDF）"""
+    try:
+        import fitz
+    except ImportError:
+        print("  警告: PyMuPDF 未安装，跳过 PDF 图片提取")
+        print("  安装命令: pip3 install PyMuPDF --break-system-packages")
+        return []
+    
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir, exist_ok=True)
+    
+    image_paths = []
+    
+    try:
+        doc = fitz.open(file_path)
+        print(f"  正在提取 PDF 嵌入图片...")
+        
+        img_count = 0
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            images = page.get_images()
+            
+            for img_index, img in enumerate(images):
+                xref = img[0]
+                base_image = doc.extract_image(xref)
+                image_bytes = base_image["image"]
+                image_ext = base_image["ext"]
+                
+                img_count += 1
+                img_name = f"pdf_img_p{page_num+1}_{img_index+1}.{image_ext}"
+                img_path = os.path.join(output_dir, img_name)
+                
+                with open(img_path, "wb") as f:
+                    f.write(image_bytes)
+                
+                image_paths.append(img_path)
+        
+        doc.close()
+        print(f"  PDF 图片提取完成，共 {img_count} 张")
+        
+    except Exception as e:
+        print(f"  错误: PDF 图片提取失败 - {e}")
+    
+    return image_paths
 
 
 def extract_text_from_pdf(file_path: str) -> str:
-    """从 PDF 提取文本"""
+    """从 PDF 提取文本和图片"""
     if pdfplumber is None:
         return "[错误] pdfplumber 未安装，请运行: pip3 install pdfplumber"
 
@@ -375,6 +415,23 @@ def extract_text_from_pdf(file_path: str) -> str:
                         for row in table:
                             row_str = " | ".join([str(cell) if cell else "" for cell in row])
                             content.append(f"| {row_str} |")
+
+        # 提取图片
+        assets_dir = os.path.join("/tmp", f"pdf_assets_{int(time.time())}")
+        os.makedirs(assets_dir, exist_ok=True)
+
+        print(f"  正在提取图片...")
+        image_paths = extract_images_from_pdf(file_path, assets_dir)
+
+        if image_paths:
+            content.append("\n\n## PDF 嵌入图片\n")
+            content.append("(以下为 PDF 中提取的原始图片)\n")
+
+            uploaded = upload_images_to_host(image_paths)
+
+            for i, (img_path, img_url) in enumerate(uploaded, 1):
+                content.append(f"\n### 图片 {i}: {os.path.basename(img_path)}\n")
+                content.append(f"![图片 {i}]({img_url})\n")
 
         return "\n".join(content)
     except Exception as e:
