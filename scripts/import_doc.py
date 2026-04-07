@@ -300,8 +300,13 @@ def extract_text_from_docx(file_path: str) -> str:
         return f"[错误] 读取 Word 文档失败: {e}"
 
 
-def extract_text_from_pptx(file_path: str) -> str:
-    """从 PPT 提取文本"""
+def extract_text_from_pptx(file_path: str, extract_images: bool = False) -> str:
+    """从 PPT 提取文本
+    
+    Args:
+        file_path: PPT 文件路径
+        extract_images: 是否提取图片（默认 False，PPT 图片较多，节省时间和空间）
+    """
     if Presentation is None:
         return "[错误] python-pptx 未安装，请运行: pip3 install python-pptx"
 
@@ -324,21 +329,22 @@ def extract_text_from_pptx(file_path: str) -> str:
 
             content.append("\n---")
 
-        # 提取图片
-        assets_dir = os.path.join("/tmp", f"pptx_assets_{int(time.time())}")
-        os.makedirs(assets_dir, exist_ok=True)
+        # PPT 默认不提取图片（图片较多，会导致上传慢且占用图床空间）
+        if extract_images:
+            assets_dir = os.path.join("/tmp", f"pptx_assets_{int(time.time())}")
+            os.makedirs(assets_dir, exist_ok=True)
 
-        print(f"  正在提取图片...")
-        image_paths = extract_images_from_pptx(prs, assets_dir)
+            print(f"  正在提取图片...")
+            image_paths = extract_images_from_pptx(prs, assets_dir)
 
-        if image_paths:
-            content.append("\n\n## 图片内容\n")
+            if image_paths:
+                content.append("\n\n## 图片内容\n")
 
-            uploaded = upload_images_to_host(image_paths)
+                uploaded = upload_images_to_host(image_paths)
 
-            for i, (img_path, img_url) in enumerate(uploaded, 1):
-                content.append(f"\n### 图片 {i}: {os.path.basename(img_path)}\n")
-                content.append(f"![{os.path.basename(img_path)}]({img_url})\n")
+                for i, (img_path, img_url) in enumerate(uploaded, 1):
+                    content.append(f"\n### 图片 {i}: {os.path.basename(img_path)}\n")
+                    content.append(f"![{os.path.basename(img_path)}]({img_url})\n")
 
         return "\n".join(content)
     except Exception as e:
