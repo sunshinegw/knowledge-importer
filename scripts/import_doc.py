@@ -40,6 +40,51 @@ except ImportError:
     )
     UPLOAD_PATH = "/Picture"
 
+
+# ============================================================
+# 分类规则配置
+# ============================================================
+
+# 分类关键词映射（按优先级排序）
+CATEGORY_KEYWORDS = {
+    "申报方案": ["申报", "投标", "建设方案申请", "申请"],
+    "解决方案": ["方案", "解决", "产品", "介绍"],
+    "技术文档": ["技术", "文档", "手册", "使用", "部署"],
+    "正式文件": ["正式", "原始", "V1", "V2", "V3"],
+    "世校赛": ["世校赛", "技能大赛", "大赛", "总决赛", "赛道", "承办校"],
+    "职业教育": ["职业", "教育", "教学", "人才培养", "专业建设"],
+}
+
+
+def auto_detect_category(filename: str) -> str:
+    """
+    根据文件名自动检测分类
+    返回: 分类名称，如果未匹配则返回空字符串
+    """
+    # 移除扩展名
+    name = os.path.splitext(filename)[0]
+    
+    for category, keywords in CATEGORY_KEYWORDS.items():
+        for keyword in keywords:
+            if keyword in name:
+                return category
+    
+    return ""
+
+
+def get_output_subdir(filename: str, category: str = None) -> str:
+    """
+    获取输出子目录
+    1. 如果指定了 category，直接使用
+    2. 否则根据文件名自动检测
+    3. 检测不到则返回空字符串（直接保存到根目录）
+    """
+    if category:
+        return category
+    
+    detected = auto_detect_category(filename)
+    return detected
+
 # 文档解析库
 try:
     from docx import Document as DocxDocument
@@ -489,8 +534,14 @@ def get_file_type(file_path: str) -> str:
     return type_map.get(ext, 'unknown')
 
 
-def convert_file(file_path: str, output_dir: str = None) -> str:
-    """转换单个文件"""
+def convert_file(file_path: str, output_dir: str = None, category: str = None) -> str:
+    """转换单个文件
+    
+    Args:
+        file_path: 要转换的文件路径
+        output_dir: 输出目录（默认为知识库根目录）
+        category: 指定分类目录（如"解决方案/UBT"），优先级高于自动检测
+    """
     if not os.path.exists(file_path):
         return f"[错误] 文件不存在: {file_path}"
 
@@ -502,9 +553,27 @@ def convert_file(file_path: str, output_dir: str = None) -> str:
     if output_dir is None:
         output_dir = DEFAULT_KNOWLEDGE_BASE
 
-    os.makedirs(output_dir, exist_ok=True)
+    filename = os.path.basename(file_path)
+    
+    # 获取分类子目录
+    subdir = get_output_subdir(filename, category)
+    
+    # 构建完整输出路径
+    if subdir:
+        # 如果 category 包含子目录（如"解决方案/UBT"），直接使用
+        if "/" in subdir:
+            target_dir = os.path.join(output_dir, subdir)
+        else:
+            # 否则在对应一级分类下创建子目录（以文件名命名）
+            file_stem = os.path.splitext(filename)[0]
+            target_dir = os.path.join(output_dir, subdir, file_stem)
+    else:
+        target_dir = output_dir
 
-    print(f"正在处理: {os.path.basename(file_path)}")
+    os.makedirs(target_dir, exist_ok=True)
+
+    print(f"正在处理: {filename}")
+    print(f"  分类: {subdir if subdir else '（根目录）'}")
 
     if file_type == 'docx':
         content = extract_text_from_docx(file_path)
@@ -519,8 +588,9 @@ def convert_file(file_path: str, output_dir: str = None) -> str:
     else:
         return f"[错误] 暂不支持此格式: {file_type}"
 
-    filename = os.path.splitext(os.path.basename(file_path))[0]
-    output_file = os.path.join(output_dir, f"{filename}.md")
+    # 保存文件
+    output_filename = f"{os.path.splitext(filename)[0]}.md"
+    output_file = os.path.join(target_dir, output_filename)
 
     try:
         with open(output_file, 'w', encoding='utf-8') as f:
@@ -530,8 +600,14 @@ def convert_file(file_path: str, output_dir: str = None) -> str:
         return f"[错误] 保存文件失败: {e}"
 
 
-def batch_convert(source_dir: str, output_dir: str = None) -> str:
-    """批量转换目录下的所有支持的文件"""
+def batch_convert(source_dir: str, output_dir: str = None, category: str = None) -> str:
+    """批量转换目录下的所有支持的文件
+    
+    Args:
+        source_dir: 源目录
+        output_dir: 输出目录
+        category: 指定分类目录
+    """
     if not os.path.isdir(source_dir):
         return f"[错误] 目录不存在: {source_dir}"
 
@@ -557,7 +633,7 @@ def batch_convert(source_dir: str, output_dir: str = None) -> str:
                 else:
                     target_dir = output_dir
 
-                result = convert_file(file_path, target_dir)
+                result = convert_file(file_path, target_dir, category)
                 results.append(result)
                 results.append("")
 
@@ -566,21 +642,35 @@ def batch_convert(source_dir: str, output_dir: str = None) -> str:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='知识库文档导入工具（图片上传到图床）',
+        description='知识库文档导入工具（图片上传到图床，支持自动分类）',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+分类说明:
+  自动分类规则（根据文件名关键词）:
+    - 申报方案: 申报、投标、建设方案申请
+    - 解决方案: 方案、解决、产品、介绍
+    - 技术文档: 技术、文档、手册、使用、部署
+    - 正式文件: 正式、原始、V1/V2/V3版本
+    - 世校赛: 世校赛、技能大赛、总决赛、赛道、承办校
+    - 职业教育: 职业、教育、教学、人才培养、专业建设
+
+  也支持手动指定分类: --category 申报方案/无人机
+
 示例:
-  python3 import_doc.py /path/to/document.docx
+  python3 import_doc.py /path/to/document.pdf
+  python3 import_doc.py /path/to/document.pdf --category 解决方案/UBT
   python3 import_doc.py /path/to/document.docx /path/to/output
   python3 import_doc.py --batch /path/to/folder
+  python3 import_doc.py --batch /path/to/folder --category 申报方案
 
 依赖:
-  pip3 install python-docx python-pptx openpyxl pdfplumber
+  pip3 install python-docx python-pptx openpyxl pdfplumber PyMuPDF
         """
     )
     parser.add_argument('file', nargs='?', help='要转换的文件路径')
     parser.add_argument('--batch', action='store_true', help='批量转换模式')
     parser.add_argument('output', nargs='?', help='输出目录（可选）')
+    parser.add_argument('--category', '-c', help='指定分类目录（如：解决方案/UBT、申报方案/无人机）')
 
     args = parser.parse_args()
 
@@ -588,16 +678,16 @@ def main():
         if not args.file:
             print("[错误] 批量模式需要指定源目录")
             sys.exit(1)
-        result = batch_convert(args.file, args.output)
+        result = batch_convert(args.file, args.output, args.category)
         print(result)
     else:
         if not args.file:
             print("用法:")
-            print("  python3 import_doc.py <文件> [输出目录]")
-            print("  python3 import_doc.py --batch <源目录> [输出目录]")
+            print("  python3 import_doc.py <文件> [输出目录] [--category 分类]")
+            print("  python3 import_doc.py --batch <源目录> [输出目录] [--category 分类]")
             print("\n详细帮助: python3 import_doc.py --help")
             sys.exit(1)
-        result = convert_file(args.file, args.output)
+        result = convert_file(args.file, args.output, args.category)
         print(result)
 
 
